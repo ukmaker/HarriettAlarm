@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "Sparkfun")(type "Legacy")(uri "Z:/duncan/EDA/kicad/SparkFun.lib")(options "")(descr ""))
+)

@@ -41,55 +41,44 @@
 STM32RTC& rtc = STM32RTC::getInstance();
 
 uint8_t setMode, lastSetMode;
-uint8_t alarmMode, alarmState;
+uint8_t alarmState;
 bool settingVolume = 0;
 
 bool mp3Enabled = 0;
 
 Alarm workAlarm(7, 0, 1, 20, work_bitmap, work_width, work_height);
 Alarm lessonAlarm(12, 1, 2, 20, lesson_bitmap, lesson_width, lesson_height);
+Alarm* activeAlarm = NULL;
 Bitmap sleepInBitmap(sleep_in_bitmap, sleep_in_width, sleep_in_height);
 ClockTime clockTime(12, 0);
 
 View view(display);
 
-MP3Alarm mp3Alarm;
 
 #define MAX_VOLUME 20
-#define MP3_BUSY PB12
-#define MP3_POWER PB11
+#define MP3_BUSY PB0
+#define MP3_POWER PB10
+#define MP3_RX PB1
+#define MP3_TX PB2
 #define MP3_POWERUP_DELAY 1500
 #define MP3_ALARM_TONES 8
 
+MP3Alarm mp3Alarm(MP3_POWER, MP3_RX, MP3_TX);
+
 #define SET_MODE_IDLE 0
 #define SET_MODE_TIME 1
-#define SET_MODE_LESSON 2
-#define SET_MODE_WORK 3
+#define SET_MODE_ALARM_TIME 2
+#define SET_MODE_ALARM_TONE 3
 
 #define BY_ONE 0
 #define BY_FIVE 1
 
-#define ALARM_MODE_SLEEP_IN 0
-#define ALARM_MODE_LESSON 1
-#define ALARM_MODE_WORK 2
+#define LESSON_BUTTON_PIN PB7
+#define WORK_BUTTON_PIN PB6
+#define SNOOZE_HH_BUTTON_PIN PB8
+#define STOP_MM_BUTTON_PIN PB9
 
-#define LESSON_BUTTON_PIN 25
-#define LESSON_LED_PIN 24
-
-#define WORK_BUTTON_PIN 23
-#define WORK_LED_PIN 22
-
-#define SNOOZE_HH_BUTTON_PIN 21
-#define SNOOZE_HH_LED_PIN 20
-
-#define STOP_MM_BUTTON_PIN 19
-#define STOP_MM_LED_PIN 18
-
-#define LED_R_PIN PB12
-#define LED_G_PIN PB13
-#define LED_B_PIN PB14
-
-volatile bool alarmInterrupt = 0;
+volatile bool alarmInterrupt = 1;
 
 #define ALARM_STATE_IDLE 0
 #define ALARM_STATE_STARTING 1
@@ -99,46 +88,47 @@ volatile bool alarmInterrupt = 0;
 #define ALARM_SNOOZE_MINUTES 10
 time_t snoozeEpoch;
 
-TwoByTwo twobytwo(LED_R_PIN, LED_G_PIN, LED_B_PIN,
-                  LESSON_BUTTON_PIN, LESSON_LED_PIN,
-                  WORK_BUTTON_PIN, WORK_LED_PIN,
-                  SNOOZE_HH_BUTTON_PIN, SNOOZE_HH_LED_PIN,
-                  STOP_MM_BUTTON_PIN, STOP_MM_LED_PIN);
-
-Buttons buttons(twobytwo);
+Buttons buttons(  LESSON_BUTTON_PIN,
+                  WORK_BUTTON_PIN,
+                  SNOOZE_HH_BUTTON_PIN,
+                  STOP_MM_BUTTON_PIN);
 
 time_t expiry;
 volatile bool active;
 
-void setSleepIn() {
+void activateSleepIn() {
   view.setBitmap(sleepInBitmap);
   view.clearAlarmTime();
   view.clearSetAlarmTime();
   rtc.disableAlarm();
-  alarmMode = ALARM_MODE_SLEEP_IN;
+  activeAlarm = NULL;
   setMode = SET_MODE_IDLE;
 }
 
+void updateAlarmTime(Alarm* alarm) {
+  rtc.setAlarmDay(1);
+  rtc.setAlarmHours(alarm->time().h());
+  rtc.setAlarmMinutes(alarm->time().m());
+  rtc.setAlarmSeconds(5);
+  rtc.enableAlarm(STM32RTC::MATCH_HHMMSS);
+  activeAlarm = alarm;
+}
 
-void setAlarm(Alarm& alarm, uint8_t mode) {
-  view.setBitmap(alarm.bitmap());
+void setActiveAlarm(Alarm* alarm) {
+  view.setBitmap(alarm->bitmap());
   view.clearSetAlarmTime();
   view.displayAlarmTime(alarm);
   view.clearAlarmSnoozing();
-  rtc.setAlarmHours(alarm.time().h());
-  rtc.setAlarmMinutes(alarm.time().m());
-  rtc.setAlarmSeconds(5);
-  rtc.enableAlarm(STM32RTC::MATCH_HHMMSS);
-  alarmMode = mode;
+  updateAlarmTime(alarm);
   setMode = SET_MODE_IDLE;
 }
 
-void setWork() {
-  setAlarm(workAlarm, ALARM_MODE_WORK);
+void activateWorkAlarm() {
+  setActiveAlarm(&workAlarm);
 }
 
-void setLesson() {
-  setAlarm(lessonAlarm, ALARM_MODE_LESSON);
+void activateLessonAlarm() {
+  setActiveAlarm(&lessonAlarm);
 }
 
 void setupRTC() {
@@ -165,6 +155,7 @@ void alarmMatch(void* data) {
 }
 
 void buttonCallback() {
+  //alarmInterrupt = 1;
   active = 1;
 }
 
@@ -173,128 +164,189 @@ void secondsInt(void* data) {
   active = 1;
 }
 
-
-void lessonLongClickHandler(void) {
-  rtc.detachSecondsInterrupt();
-  if (alarmMode == ALARM_MODE_LESSON) {
-    alarmMode = ALARM_MODE_SLEEP_IN;
-    setSleepIn();
-  } else {
-    alarmMode = ALARM_MODE_LESSON;
-    setLesson();
-  }
-  rtc.attachSecondsInterrupt(secondsInt);
+void setModeIdle() {
+  setMode = SET_MODE_IDLE;
+  view.updateClock(clockTime);
+  view.clearSetTime();
+  view.clearSetAlarmTime();
+  view.clearSetAlarmTone();
+  mp3Alarm.stop();
 }
 
-
-void workLongClickHandler(void) {
-  rtc.detachSecondsInterrupt();
-  if (alarmMode == ALARM_MODE_WORK) {
-    alarmMode = ALARM_MODE_SLEEP_IN;
-    setSleepIn();
-  } else {
-    alarmMode = ALARM_MODE_WORK;
-    setWork();
-  }
-  rtc.attachSecondsInterrupt(secondsInt);
-}
-
-void setTimeClickHandler(void) {
-  switch (alarmMode) {
-    case ALARM_MODE_WORK:
-      setWorkAlarmTime();
-      view.showSetAlarm();
-      break;
-
-    case ALARM_MODE_LESSON:
-      setLessonAlarmTime();
-      view.showSetAlarm();
-      break;
-
-    default:
-      setTime();
-      view.showSetTime();
-      break;
-  }
-}
-
-void setWorkAlarmTime() {
-  setMode = SET_MODE_WORK;
-  view.displayAlarmTime(workAlarm);
-  rtc.setAlarmDay(1);
-  rtc.setAlarmHours(workAlarm.time().h());
-  rtc.setAlarmMinutes(workAlarm.time().m());
-  rtc.setAlarmSeconds(5);
-  rtc.enableAlarm(STM32RTC::MATCH_HHMMSS);
-}
-
-void setLessonAlarmTime() {
-  setMode = SET_MODE_LESSON;
-  view.displayAlarmTime(lessonAlarm);
-  rtc.setAlarmDay(1);
-  rtc.setAlarmHours(lessonAlarm.time().h());
-  rtc.setAlarmMinutes(lessonAlarm.time().m());
-  rtc.setAlarmSeconds(5);
-  rtc.enableAlarm(STM32RTC::MATCH_HHMMSS);
-}
-
-void setTime() {
+void setModeSetTime() {
   setMode = SET_MODE_TIME;
   view.updateClock(clockTime);
+  view.showSetTime();
+}
+
+void setModeSetWorkAlarmTime() {
+  activateWorkAlarm();
+  setMode = SET_MODE_ALARM_TIME;
+  view.showSetAlarmTime();
+}
+
+void setModeSetLessonAlarmTime() {
+  activateLessonAlarm();
+  setMode = SET_MODE_ALARM_TIME;
+  view.showSetAlarmTime();
+}
+
+void setModeSetWorkAlarmTone() {
+  activateWorkAlarm();
+  setMode = SET_MODE_ALARM_TONE;
+  view.showSetAlarmTone();
+}
+
+void setModeSetLessonAlarmTone() {
+  activateLessonAlarm();
+  setMode = SET_MODE_ALARM_TONE;
+  view.showSetAlarmTone();
+}
+
+void backRightLongClickHandler(void) {
+  if (setMode != SET_MODE_ALARM_TONE) {
+   // rtc.detachSecondsInterrupt();
+    if (activeAlarm != NULL) {
+      activateSleepIn();
+    } else {
+      activateLessonAlarm();
+    }
+    //rtc.attachSecondsInterrupt(secondsInt);
+  }
+}
+
+
+void backLeftLongClickHandler(void) {
+  if (setMode != SET_MODE_ALARM_TONE) {
+    //rtc.detachSecondsInterrupt();
+    if (activeAlarm != NULL) {
+      activateSleepIn();
+    } else {
+      activateWorkAlarm();
+    }
+    //rtc.attachSecondsInterrupt(secondsInt);
+  }
+}
+
+void backRightShortClickHandler() {
+  if (setMode == SET_MODE_ALARM_TONE) {  // otherwise ignore
+    if (activeAlarm != NULL) {
+      activeAlarm->nextTone();
+      view.displayAlarmTime(activeAlarm);
+      mp3Alarm.stop();
+      mp3Alarm.play(activeAlarm->tone(), activeAlarm->volume());
+    }
+  }
+}
+
+void backLeftShortClickHandler() {
+  if (setMode == SET_MODE_ALARM_TONE) {
+    if (activeAlarm != NULL) {
+      activeAlarm->prevTone();
+      view.displayAlarmTime(activeAlarm);
+      mp3Alarm.stop();
+      mp3Alarm.play(activeAlarm->tone(), activeAlarm->volume());
+    }
+  }
+}
+
+
+/**
+* Long presses on both back buttons cycle through the settings
+* - If no alarm is active just activate or deactivate setting the time
+* - If an alarm is active cycle between setting the alarm time, alarm sound or nothing
+**/
+void setModeClickHandler(void) {
+  if (activeAlarm == NULL) {
+    if (setMode == SET_MODE_IDLE) {
+      setModeSetTime();
+    } else {
+      setModeIdle();
+    }
+  } else {
+    switch (setMode) {
+
+      case SET_MODE_ALARM_TIME:
+        setMode = SET_MODE_ALARM_TONE;
+        view.clearSetAlarmTime();
+        view.showSetAlarmTone();
+        break;
+
+      case SET_MODE_ALARM_TONE:
+        setMode = SET_MODE_IDLE;
+        view.clearSetAlarmTone();
+        mp3Alarm.stop();
+        break;
+
+      case SET_MODE_IDLE:
+      default:
+        setMode = SET_MODE_ALARM_TIME;
+        view.showSetAlarmTime();
+        break;
+    }
+  }
 }
 
 void bumpHours(bool byFive) {
   // If we're setting the time then bump the hours
-  rtc.detachSecondsInterrupt();
+  //rtc.detachSecondsInterrupt();
   switch (setMode) {
     case SET_MODE_TIME:
       clockTime.getRTC();
       clockTime.incrementHours(byFive);
       clockTime.setRTC();
-      setTime();
+      setModeSetTime();
       break;
 
-    case SET_MODE_LESSON:
-      lessonAlarm.time().incrementHours(byFive);
-      setLessonAlarmTime();
+    case SET_MODE_ALARM_TIME:
+      activeAlarm->time().incrementHours(byFive);
+      updateAlarmTime(activeAlarm);
+      view.displayAlarmTime(activeAlarm);
       break;
 
-    case SET_MODE_WORK:
-      workAlarm.time().incrementHours(byFive);
-      setWorkAlarmTime();
+    case SET_MODE_ALARM_TONE:
+      mp3Alarm.powerOn();
+      mp3Alarm.stop();
+      activeAlarm->louder();
+      view.displayAlarmTime(activeAlarm);
+      mp3Alarm.play(activeAlarm->tone(), activeAlarm->volume());
       break;
 
     default:
       break;
   }
-  rtc.attachSecondsInterrupt(secondsInt);
+  //rtc.attachSecondsInterrupt(secondsInt);
 }
 
 void bumpMinutes(bool byFive) {
   // If we're setting the time then bump the hours
-  rtc.detachSecondsInterrupt();
+  //rtc.detachSecondsInterrupt();
   switch (setMode) {
     case SET_MODE_TIME:
       clockTime.getRTC();
       clockTime.incrementMinutes(byFive);
       clockTime.setRTC();
-      setTime();
+      setModeSetTime();
       break;
 
-    case SET_MODE_LESSON:
-      lessonAlarm.time().incrementMinutes(byFive);
-      setLessonAlarmTime();
+    case SET_MODE_ALARM_TIME:
+      activeAlarm->time().incrementMinutes(byFive);
+      updateAlarmTime(activeAlarm);
+      view.displayAlarmTime(activeAlarm);
       break;
 
-    case SET_MODE_WORK:
-      workAlarm.time().incrementMinutes(byFive);
-      setWorkAlarmTime();
+    case SET_MODE_ALARM_TONE:
+      mp3Alarm.powerOn();
+      mp3Alarm.stop();
+      activeAlarm->quieter();
+      mp3Alarm.play(activeAlarm->tone(), activeAlarm->volume());
+      view.displayAlarmTime(activeAlarm);
       break;
 
     default:
       break;
   }
-  rtc.attachSecondsInterrupt(secondsInt);
+  //rtc.attachSecondsInterrupt(secondsInt);
 }
 
 void snoozeClickHandler(void) {
@@ -306,6 +358,7 @@ void snoozeClickHandler(void) {
     snoozeEpoch = epoc + 60 * ALARM_SNOOZE_MINUTES;
     rtc.setAlarmEpoch(snoozeEpoch);
     mp3Alarm.stop();
+    mp3Alarm.powerOff(); 
     view.showAlarmSnoozing(snoozeEpoch, epoc, 60 * ALARM_SNOOZE_MINUTES);
   } else {
     bumpHours(BY_ONE);
@@ -320,10 +373,11 @@ void stopClickHandler(void) {
 
   time_t epoc = rtc.getEpoch();
   // if an alarm is active, snooze it
-  if (alarmState == ALARM_STATE_SOUNDING) {
+  if (alarmState == ALARM_STATE_SOUNDING || alarmState == ALARM_STATE_SNOOZING) {
     alarmState = ALARM_STATE_IDLE;
     rtc.disableAlarm();
     mp3Alarm.stop();
+    mp3Alarm.powerOff();
     view.clearAlarmSnoozing();
   } else {
     bumpMinutes(BY_ONE);
@@ -335,7 +389,7 @@ void stopRepeatClickHandler(void) {
 }
 
 void soundAlarm() {
-  mp3Alarm.play(1, 50);
+  mp3Alarm.play(activeAlarm->tone(), activeAlarm->volume());
   view.clearAlarmSnoozing();
 }
 
@@ -347,80 +401,90 @@ void setupButtonInterrupts() {
 }
 
 void attachEventHandlers() {
-  buttons.setWorkLongClickHandler(workLongClickHandler);
-  buttons.setLessonLongClickHandler(lessonLongClickHandler);
-  buttons.setSetTimeClickHandler(setTimeClickHandler);
+  buttons.setBackLeftLongClickHandler(backLeftLongClickHandler);
+  buttons.setBackRightLongClickHandler(backRightLongClickHandler);
+  buttons.setBackBothLongClickHandler(setModeClickHandler);
+  buttons.setBackLeftClickHandler(backLeftShortClickHandler);
+  buttons.setBackRightClickHandler(backRightShortClickHandler);
 
-  buttons.setSnoozeClickHandler(snoozeClickHandler);
-  buttons.setStopClickHandler(stopClickHandler);
-  buttons.setSnoozeRepeatClickHandler(snoozeRepeatClickHandler);
-  buttons.setStopRepeatClickHandler(stopRepeatClickHandler);
+  buttons.setFrontRightClickHandler(snoozeClickHandler);
+  buttons.setFrontLeftClickHandler(stopClickHandler);
+  buttons.setFrontleftRepeatClickHandler(snoozeRepeatClickHandler);
+  buttons.setFrontRightRepeatClickHandler(stopRepeatClickHandler);
 }
 
 void setup() {
 
   setupRTC();
-  view.init();
+  view.setup();
   view.updateClock(clockTime);
   view.clearAlarmSnoozing();
-  Serial.begin(9600);
-  mp3Alarm.init(Serial);
-  //mp3Alarm.play(1,50);
 
   setMode = SET_MODE_IDLE;
   alarmState = ALARM_STATE_IDLE;
-  alarmMode = ALARM_MODE_SLEEP_IN;
-  setLesson();
+  activeAlarm = NULL;
+  rtc.attachInterrupt(alarmMatch);
   setupButtonInterrupts();
   attachEventHandlers();
-  rtc.attachSecondsInterrupt(secondsInt);
+  //rtc.attachSecondsInterrupt(secondsInt);
   LowPower.enableWakeupFrom(&rtc, alarmMatch);
+
   active = 1;
   expiry = 0;
+
+  activateLessonAlarm();
+soundAlarm();
 }
 
-void loop() {
+void loop() { }
 
+void floop() {
+
+ //display.init(115200);
+  
   time_t now = rtc.getEpoch();
 
   buttons.update();
   active = buttons.active();
   // how did we get here? Respond to user inputs first
   digitalWrite(LED_BUILTIN, !active);
+
   // Now update the time - does a complete refresh every 60 seconds
   clockTime.getRTC();
   if (clockTime.s() == 0) {
-    rtc.detachSecondsInterrupt();
+    //rtc.detachSecondsInterrupt();
     view.updateClock(clockTime);
-    rtc.attachSecondsInterrupt(secondsInt);
-    if(alarmState == ALARM_STATE_SNOOZING) {
+
+    if (alarmState == ALARM_STATE_SNOOZING) {
       view.showAlarmSnoozing(snoozeEpoch, now, 60 * ALARM_SNOOZE_MINUTES);
     }
+    //rtc.attachSecondsInterrupt(secondsInt);
   }
 
   // did an alarm go off?
   if (alarmInterrupt) {
     alarmInterrupt = 0;
-    alarmState = ALARM_STATE_STARTING;
-  }
-
-  // is an alarm sounding?
-  if (alarmState == ALARM_STATE_STARTING) {
     alarmState = ALARM_STATE_SOUNDING;
     soundAlarm();
+  }
+  
+  if (alarmState == ALARM_STATE_SOUNDING) {
     active = 1;
   }
 
   if (active) {
+    // wait five seconds before poweroff so we can catch any additional button clicks
     active = 0;
     expiry = rtc.getEpoch() + 5;
   } else if (rtc.getEpoch() > expiry) {
     if (setMode != SET_MODE_IDLE) {
-      setMode = SET_MODE_IDLE;
-      view.clearSetTime();
-      view.clearSetAlarmTime();
+      setModeIdle();
     }
+    mp3Alarm.powerOffNow();
+    digitalWrite(PB10,LOW);
     display.hibernate();
-    LowPower.sleep();
+    //HAL_SuspendTick();
+    LowPower.deepSleep(1000);
+    //HAL_ResumeTick();
   }
 }

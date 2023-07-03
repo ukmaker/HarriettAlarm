@@ -31,8 +31,13 @@
 
 #define ALARM_UNDERLINE_X 0
 #define ALARM_UNDERLINE_Y 112
-#define ALARM_UNDERLINE_W (296 / 3)
+#define ALARM_UNDERLINE_W (296 / 4)
 #define ALARM_UNDERLINE_H 2
+
+#define ALARM_TONE_UNDERLINE_X (296 / 4)
+#define ALARM_TONE_UNDERLINE_Y 112
+#define ALARM_TONE_UNDERLINE_W (296 / 4)
+#define ALARM_TONE_UNDERLINE_H 2
 
 #define ALARM_SNOOZE_BAR_X 0
 #define ALARM_SNOOZE_BAR_Y 120
@@ -55,6 +60,11 @@ public:
     : _display(display) {}
   ~View() {}
 
+  void setup() {
+    init();
+    cls();
+  }
+
   void init() {
     delay(100);
     _display.init(115200);
@@ -62,8 +72,6 @@ public:
     _display.setRotation(1);
     setFont(&FreeMonoBold24pt7b);
     _display.setTextColor(GxEPD_BLACK);
-
-    cls();
   }
 
   void cls() {
@@ -110,14 +118,19 @@ public:
 
 
 
-  void displayAlarmTime(Alarm alarm) {
+  void displayAlarmTime(Alarm *alarm) {
 
     PrintString valueString;
     setFont(&FreeMonoBold9pt7b);
-    valueString.print(alarm.time().h(), DEC);
+    valueString.print(alarm->time().h(), DEC);
     valueString.print(':');
-    if (alarm.time().m() < 10) valueString.print("0");
-    valueString.print(alarm.time().m(), DEC);
+    if (alarm->time().m() < 10) valueString.print("0");
+    valueString.print(alarm->time().m(), DEC);
+    valueString.print(" ");
+    valueString.print(alarm->tone());
+    valueString.print(" ");
+    valueString.print(alarm->volume());
+    
 
     _display.setPartialWindow(ALARM_WINDOW_X, ALARM_WINDOW_Y, ALARM_WINDOW_W, ALARM_WINDOW_H);
     _display.firstPage();
@@ -151,12 +164,21 @@ public:
     } while (_display.nextPage());
   }
 
-  void showSetAlarm() {
+  void showSetAlarmTime() {
     clearSetTime();
     _display.setPartialWindow(ALARM_UNDERLINE_X, ALARM_UNDERLINE_Y, ALARM_UNDERLINE_W, ALARM_UNDERLINE_H);
     _display.firstPage();
     do {
       _display.fillRect(ALARM_UNDERLINE_X, ALARM_UNDERLINE_Y, ALARM_UNDERLINE_W, ALARM_UNDERLINE_H, GxEPD_BLACK);
+    } while (_display.nextPage());
+  }
+
+  void showSetAlarmTone() {
+    clearSetTime();
+    _display.setPartialWindow(ALARM_TONE_UNDERLINE_X, ALARM_TONE_UNDERLINE_Y, ALARM_TONE_UNDERLINE_W, ALARM_TONE_UNDERLINE_H);
+    _display.firstPage();
+    do {
+      _display.fillRect(ALARM_TONE_UNDERLINE_X, ALARM_TONE_UNDERLINE_Y, ALARM_TONE_UNDERLINE_W, ALARM_TONE_UNDERLINE_H, GxEPD_BLACK);
     } while (_display.nextPage());
   }
 
@@ -173,6 +195,14 @@ public:
     _display.firstPage();
     do {
       _display.fillRect(ALARM_UNDERLINE_X, ALARM_UNDERLINE_Y, ALARM_UNDERLINE_W, ALARM_UNDERLINE_H, GxEPD_WHITE);
+    } while (_display.nextPage());
+  }
+
+  void clearSetAlarmTone() {
+    _display.setPartialWindow(ALARM_TONE_UNDERLINE_X, ALARM_TONE_UNDERLINE_Y, ALARM_TONE_UNDERLINE_W, ALARM_TONE_UNDERLINE_H);
+    _display.firstPage();
+    do {
+      _display.fillRect(ALARM_TONE_UNDERLINE_X, ALARM_TONE_UNDERLINE_Y, ALARM_TONE_UNDERLINE_W, ALARM_TONE_UNDERLINE_H, GxEPD_WHITE);
     } while (_display.nextPage());
   }
 

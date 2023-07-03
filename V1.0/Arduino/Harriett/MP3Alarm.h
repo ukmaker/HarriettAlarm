@@ -2,8 +2,9 @@
 #define HARRIETT_MP3ALARM_H
 
 #include "DFRobotDFPlayerMini.h"
+#include "SoftwareSerial.h"
 
-static const uint8_t _volumes[] = { 50, 50, 80, 50, 30, 50, 80, 50 };
+static const uint8_t _volumes[] = { 50, 50, 80, 50, 80, 50, 80, 50 };
 
 class MP3Alarm {
 
@@ -11,12 +12,16 @@ class MP3Alarm {
 
 public:
 
-  MP3Alarm() : _mp3() {
-
+  MP3Alarm(uint32_t powerPin, uint32_t rxPin, uint32_t txPin) : 
+    _mp3(), _powerPin(powerPin),_serial(rxPin, txPin), _rxPin(rxPin), _txPin(txPin)
+  {
+    pinMode(_powerPin, OUTPUT);
+    digitalWrite(_powerPin, LOW);
+    _powerOn = 0;
   }
 
-    bool init(Stream &stream) {
-      if(!_mp3.begin(stream)) {
+    bool init() {
+      if(!_mp3.begin(_serial, 1, 1)) {
         return 0;
       }
 
@@ -26,24 +31,67 @@ public:
       return 1;
     }
 
-  void play(uint8_t sound, uint8_t volumePercent) {
+/**
+* volumeLevel is 1 to 10
+**/
+  void play(uint8_t sound, uint8_t volumeLevel) {
+    powerOn();
     // Acceptable sound values are 1-8
     sound = (sound % 8) + 1;
     // Volume for the MP3 widget is 0 - 30
     // apply the multiplier so that volumePercent == 50 is the same audible volume for all sounds
-    if(volumePercent > 100) {
-      volumePercent = 100;
+    if(volumeLevel > 10) {
+      volumeLevel = 10;
     }
-    uint32_t v = ((volumePercent * 30) / 100) * _volumes[sound] / 100;
+    uint32_t v = ((volumeLevel * 30) / 10) * _volumes[sound] / 100;
     _mp3.volume(v);
     _mp3.loop(sound);
   }
 
   void stop() {
+    powerOn();
     _mp3.stop();
+  }
+
+  void powerOn() {
+    if(!_powerOn) {
+      _powerOn = 1;
+      _serial.begin(9600);
+      digitalWrite(_powerPin, HIGH);
+      delay(1);
+      delay(2000);
+      init();
+    }
+  }
+
+  void powerOff() {
+    if(_powerOn) {
+      _powerOn = 0;
+      delay(100);
+      _serial.flush();
+      _serial.end();
+      digitalWrite(_powerPin, LOW);
+     pinMode(_txPin, INPUT);     
+     pinMode(_rxPin, INPUT);    
+     }
+  }
+  void powerOffNow() {
+    if(_powerOn) {
+      _powerOn = 0;
+      _serial.flush();
+      _serial.end();
+      digitalWrite(_powerPin, LOW);
+     pinMode(_txPin, INPUT);     
+     pinMode(_rxPin, INPUT);
+    }
   }
 
 protected:
   DFRobotDFPlayerMini _mp3;
+  SoftwareSerial _serial;
+  uint32_t _powerPin;
+  uint32_t _rxPin;
+  uint32_t _txPin;
+  bool _powerOn;
 };
 #endif

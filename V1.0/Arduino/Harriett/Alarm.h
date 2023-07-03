@@ -40,14 +40,17 @@ class Alarm {
   }
 
   uint8_t louder() {
-    _volume++;
-    if(_volume > 30) _volume = 30;
+    _volume += 1;
+    if(_volume > 10) _volume = 10;
     return _volume;
   }
 
   uint8_t quieter() {
-    if(_volume > 0) {
-      _volume--;
+    uint8_t dec = 1;
+    if(_volume > dec) {
+      _volume -= dec;
+    } else {
+      _volume = 0;
     }
     return _volume;
   }
@@ -60,7 +63,7 @@ class Alarm {
 
   ClockTime _time;
   uint8_t _tone = 1;
-  uint8_t _volume = 20;
+  uint8_t _volume = 5;
 
   Bitmap _bitmap;
 
