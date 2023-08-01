@@ -67,7 +67,7 @@ public:
 
   void init() {
     delay(100);
-    _display.init(115200);
+    _display.init(0);
     delay(1000);
     _display.setRotation(1);
     setFont(&FreeMonoBold24pt7b);

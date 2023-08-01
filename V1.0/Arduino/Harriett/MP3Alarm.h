@@ -12,8 +12,8 @@ class MP3Alarm {
 
 public:
 
-  MP3Alarm(uint32_t powerPin, uint32_t rxPin, uint32_t txPin) : 
-    _mp3(), _powerPin(powerPin),_serial(rxPin, txPin), _rxPin(rxPin), _txPin(txPin)
+  MP3Alarm(uint32_t powerPin, HardwareSerial *serial, uint32_t rxPin, uint32_t txPin) : 
+    _mp3(), _powerPin(powerPin),_serial(serial), _rxPin(rxPin), _txPin(txPin)
   {
     pinMode(_powerPin, OUTPUT);
     digitalWrite(_powerPin, LOW);
@@ -21,7 +21,8 @@ public:
   }
 
     bool init() {
-      if(!_mp3.begin(_serial, 1, 1)) {
+      powerOn();
+      if(!_mp3.begin(*_serial, 1, 1)) {
         return 0;
       }
 
@@ -44,21 +45,22 @@ public:
       volumeLevel = 10;
     }
     uint32_t v = ((volumeLevel * 30) / 10) * _volumes[sound] / 100;
+    delay(10);
     _mp3.volume(v);
+    delay(10);
     _mp3.loop(sound);
+    delay(10);
   }
 
   void stop() {
-    powerOn();
-    _mp3.stop();
+    if(_powerOn) _mp3.stop();
   }
 
   void powerOn() {
     if(!_powerOn) {
       _powerOn = 1;
-      _serial.begin(9600);
+      _serial->begin(9600);
       digitalWrite(_powerPin, HIGH);
-      delay(1);
       delay(2000);
       init();
     }
@@ -68,27 +70,17 @@ public:
     if(_powerOn) {
       _powerOn = 0;
       delay(100);
-      _serial.flush();
-      _serial.end();
+      _serial->flush();
+      _serial->end();
       digitalWrite(_powerPin, LOW);
-     pinMode(_txPin, INPUT);     
-     pinMode(_rxPin, INPUT);    
+      pinMode(_txPin, INPUT);     
+      pinMode(_rxPin, INPUT);    
      }
-  }
-  void powerOffNow() {
-    if(_powerOn) {
-      _powerOn = 0;
-      _serial.flush();
-      _serial.end();
-      digitalWrite(_powerPin, LOW);
-     pinMode(_txPin, INPUT);     
-     pinMode(_rxPin, INPUT);
-    }
   }
 
 protected:
   DFRobotDFPlayerMini _mp3;
-  SoftwareSerial _serial;
+  HardwareSerial *_serial;
   uint32_t _powerPin;
   uint32_t _rxPin;
   uint32_t _txPin;

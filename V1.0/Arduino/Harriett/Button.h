@@ -1,7 +1,7 @@
 #ifndef UKMAKER_BUTTON_H
 #define UKMAKER_BUTTON_H
 
-
+#include <Arduino.h>
 
 #define B_IDLE 0
 #define B_FALLEN 1
@@ -27,9 +27,9 @@ public:
 
   ~Button() {}
 
-  void update() {
+  void update(uint32_t millis) {
 
-    uint32_t now = millis();
+    uint32_t now = millis;
     bool current_s;
 
     _repeating = 0;
